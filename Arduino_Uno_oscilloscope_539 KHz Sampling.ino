@@ -1,39 +1,78 @@
 #include "ADCboost.h"
 #include "Streaming.h"
 
-//int x;
-//int t1,t2;
-//int i=1;
-uint16_t y[800];
-static int L=800;
+// ------------------- Configuration -------------------
+constexpr uint16_t SAMPLE_COUNT = 800;       // Number of ADC samples
+constexpr uint32_t SERIAL_BAUD = 115200;    // Serial baud rate
+constexpr uint32_t SAMPLE_INTERVAL_US = 1850; // ~539 kSps sampling interval
 
+uint16_t adcBuffer[SAMPLE_COUNT];
+volatile uint16_t writeIndex = 0;           // Circular buffer write index
+
+// ------------------- Debug Configuration -------------------
+#define DEBUG 0
+#if DEBUG
+  #define DEBUG_PRINT(x) Serial.println(x)
+#else
+  #define DEBUG_PRINT(x)
+#endif
+
+// ------------------- Function Prototypes -------------------
+void setupADC();
+void acquireSample();
+void transmitBuffer();
+float adcToVoltage(uint16_t adcValue);
+
+// ------------------- Arduino Setup -------------------
 void setup() {
-  Serial.begin(115200);
-  pinMode(A0,INPUT);
-
-  //ADC_set_reference(01); //01 è pari al default VCC
-  ADC_init(0);
+  Serial.begin(SERIAL_BAUD);
+  pinMode(A0, INPUT);
+  setupADC();
 }
 
-//frequenza di sampling: 539 Ksps
-
+// ------------------- Main Loop -------------------
 void loop() {
-  //t1=micros();
-  for(uint16_t i=0;i<L;i++){
-  y[i]=ADC_read();
-  }
-  //t2=micros();
-  //Serial.println(t2-t1);
-  //Serial.println(x);
-  Serial.println("start"); // rimuovere per  matlab
-  delay(1);
-  for(uint16_t i=0;i<L;i++){
-  Serial.println(y[i]);
-  //Serial<< y[i] << "" << "\n";
-  delayMicroseconds(1000); 
-  }
-  delay(1);
+  static uint32_t lastSampleTime = 0;
+  uint32_t currentTime = micros();
 
+  // Check if it's time to sample
+  if (currentTime - lastSampleTime >= SAMPLE_INTERVAL_US) {
+    lastSampleTime += SAMPLE_INTERVAL_US;
+    acquireSample();
+  }
+
+  // Optionally stream buffer when full
+  if (writeIndex >= SAMPLE_COUNT) {
+    transmitBuffer();
+    writeIndex = 0; // Reset buffer index
+  }
 }
 
-//float voltage= sensorValue * (5.0 / 1023.0);
+// ------------------- Function Definitions -------------------
+
+// ADC initialization
+void setupADC() {
+  ADC_init(0);  // Default VCC reference
+  DEBUG_PRINT("ADC Initialized");
+}
+
+// Acquire a single ADC sample and store in circular buffer
+void acquireSample() {
+  if (writeIndex < SAMPLE_COUNT) {
+    adcBuffer[writeIndex++] = ADC_read();
+  }
+}
+
+// Transmit buffer content over Serial
+void transmitBuffer() {
+  Serial.println("start"); // Marker for MATLAB
+  for (uint16_t i = 0; i < SAMPLE_COUNT; i++) {
+    Serial.println(adcBuffer[i]);
+  }
+  DEBUG_PRINT("Buffer transmitted");
+}
+
+// Convert ADC value to voltage
+float adcToVoltage(uint16_t adcValue) {
+  return adcValue * (5.0f / 1023.0f);
+}
